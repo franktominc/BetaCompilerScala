@@ -84,7 +84,7 @@ object MyParser {
 
   val letterOrDigit: IndexedSeq[Char]      = letter ++ digit
 
-  private val stringAllowed                = space :: letterOrDigit.toList
+  private val stringAllowed                = ',' :: '.' :: space :: letterOrDigit.toList
 
   val greaterOrEquals = P(">=")
 
@@ -124,6 +124,7 @@ object MyParser {
                                              .map(Bool)
 
   private val stringParser                 = P("\"" ~/ CharIn(stringAllowed).rep ~ "\"").!
+                                             .filter(x => x.length<257)
                                              .map(StringConst)
 
 

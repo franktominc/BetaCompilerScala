@@ -381,6 +381,7 @@ object Semantic {
       case Mul(x)=> evalMath(x, map)
       case Div(x)=> evalMath(x, map)
       case Mod(x)=> evalMath(x, map)
+      case Read(_) => Right(Success)
     }
   }
 

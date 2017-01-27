@@ -7,10 +7,10 @@ import fastparse.core.Parsed.Success
 object Main {
 
   def main(args: Array[String]): Unit = {
-      val c = new CharStream("D:\\Dropbox\\Dropbox\\compilador\\teste.txt")
+      val c = new CharStream("/home/ftominc/Dropbox/compilador/teste.txt")
       val Parsed.Success(value, _) = MyParser.programParser.parse(c.getAll.mkString)
       println(value)
-      println(Semantic.Analise(value))
-
+      println()
+      val cg = new CodeGenerator(Semantic.Analise(value)._2, value.value._1, value.value._2)
   }
 }

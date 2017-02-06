@@ -40,7 +40,7 @@ class CodeGenerator(map: Map[Identifier, `Type`], declarationZone: DeclarationZo
         |  ret
       """.stripMargin
     def generate = {
-      val writer = new Writer("D:\\Dropbox\\Dropbox\\compilador\\teste2.asm")
+      val writer = new Writer("/home/ftominc/Dropbox/compilador/teste2.asm")
       sectionData = getAssemblyCode(declarationZone.value, buildValueMap(declarationZone.value, Map.empty))
       val codeZoneStr = getAssemblyCode(codeZone.value, buildValueMap(declarationZone.value, Map.empty))
       writer.write(header)
@@ -74,108 +74,7 @@ class CodeGenerator(map: Map[Identifier, `Type`], declarationZone: DeclarationZo
   }
 
   def generateAttribution(x: Attribution) = {
-    def recurr(x: Token):String ={
-      x match {
-        case Add(y) => recurr(y._1) + recurr(y._2) +
-                       """
-                         |movsd xmm1, [rsp]
-                         |add rsp, 8
-                         |movsd xmm0, [rsp]
-                         |add rsp, 8
-                         |addsd XMM0, XMM1
-                         |sub rsp, 8
-                         |movsd [rsp], XMM0
-                         |
-                       """.stripMargin
-        case Sub(y) => recurr(y._1) + recurr(y._2) +
-                       """
-                         |movsd xmm1, [rsp]
-                         |add rsp, 8
-                         |movsd xmm0, [rsp]
-                         |add rsp, 8
-                         |subsd XMM0, XMM1
-                         |sub rsp, 8
-                         |movsd [rsp], XMM0
-                         |
-                       """.stripMargin
-        case Div(y) =>  recurr(y._1) + recurr(y._2) +
-                        """
-                          |movsd xmm1, [rsp]
-                          |add rsp, 8
-                          |movsd xmm0, [rsp]
-                          |add rsp, 8
-                          |divsd XMM0, XMM1
-                          |sub rsp, 8
-                          |movsd [rsp], XMM0
-                          |
-                        """.stripMargin
-        case Mul(y) => recurr(y._1) + recurr(y._2) +
-                      """
-                        |movsd xmm1, [rsp]
-                        |add rsp, 8
-                        |movsd xmm0, [rsp]
-                        |add rsp, 8
-                        |mulsd XMM0, XMM1
-                        |sub rsp, 8
-                        |movsd [rsp], XMM0
-                        |
-                      """.stripMargin
-        case Mod(y) => recurr(y._1) + recurr(y._2) +
-                       """
-                         |movsd xmm0, [rsp]
-                         |add rsp, 8
-                         |movsd  xmm1, [rsp]
-                         |add rsp, 8
-                         |mov rax, 2
-                         |call fmod
-                         |sub rsp, 8
-                         |movsd [rsp], rax
-                         |
-                       """.stripMargin
-        case Identifier(y) =>
-          s"""
-            |push qword [$y]
-          """.stripMargin
-
-        case NumberConst(y) =>
-          s"""
-            |mov rax, 0x${java.lang.Double.doubleToLongBits(y).toHexString}
-            |push rax
-          """.stripMargin
-
-      }
-    }
     x.value._2 match{
-      case y: Add => recurr(y)+
-                     s"""
-                       |movsd xmm0, [rsp]
-                       |add rsp, 8
-                       |movsd [${x.value._1.value}], xmm0
-                     """.stripMargin
-      case y: Sub => recurr(y)+
-                     s"""
-                       |movsd xmm0, [rsp]
-                       |add rsp, 8
-                       |movsd [${x.value._1.value}], xmm0
-                     """.stripMargin
-      case y: Mul => recurr(y)+
-                     s"""
-                       |movsd xmm0, [rsp]
-                       |add rsp, 8
-                       |movsd [${x.value._1.value}], xmm0
-                     """.stripMargin
-      case y: Div => recurr(y)+
-                     s"""
-                       |movsd xmm0, [rsp]
-                       |add rsp, 8
-                       |movsd [${x.value._1.value}], xmm0
-                     """.stripMargin
-      case y: Mod => recurr(y)+
-                     s"""
-                       |movsd xmm0, [rsp]
-                       |add rsp, 8
-                       |movsd [${x.value._1.value}], xmm0
-                     """.stripMargin
       case y: Identifier => map(x.value._1) match {
         case NumberType =>    s"""
                               |movsd xmm0, [${y.value}]
@@ -194,6 +93,8 @@ class CodeGenerator(map: Map[Identifier, `Type`], declarationZone: DeclarationZo
              |mov al, byte [${y.value}]
              |mov [${x.value._1.value}], byte al
            """.stripMargin
+
+        case _ => getAssemblyCode(List(y), Map.empty)
       }
       case y: NumberConst => s"""
           |mov rax, 0x${java.lang.Double.doubleToLongBits(y.value).toHexString}
@@ -216,7 +117,7 @@ class CodeGenerator(map: Map[Identifier, `Type`], declarationZone: DeclarationZo
         val b =
           s"""
              |cld
-             |mov rsi, _stringConst${numberOfStringConst}
+             |mov rsi, _stringConst$numberOfStringConst
              |mov rdi, ${x.value._1.value}
              |mov rcx, 255
              |rep movsb
@@ -224,6 +125,36 @@ class CodeGenerator(map: Map[Identifier, `Type`], declarationZone: DeclarationZo
         .stripMargin
         numberOfStringConst = numberOfStringConst + 1
         b
+      case y: Add => generateMath(y) +
+          s"""
+           |  movsd xmm0, [rsp]
+           |  add rsp, 8
+           |  movsd [${x.value._1.value}], xmm0
+           |""".stripMargin
+      case y: Sub => generateMath(y) +
+        s"""
+           |  movsd xmm0, [rsp]
+           |  add rsp, 8
+           |  movsd [${x.value._1.value}], xmm0
+           |""".stripMargin
+      case y: Mul => generateMath(y) +
+        s"""
+           |  movsd xmm0, [rsp]
+           |  add rsp, 8
+           |  movsd [${x.value._1.value}], xmm0
+           |""".stripMargin
+      case y: Div => generateMath(y) +
+        s"""
+           |  movsd xmm0, [rsp]
+           |  add rsp, 8
+           |  movsd [${x.value._1.value}], xmm0
+           |""".stripMargin
+      case y: Mod => generateMath(y) +
+        s"""
+           |  movsd xmm0, [rsp]
+           |  add rsp, 8
+           |  movsd [${x.value._1.value}], xmm0
+           |""".stripMargin
     }
   }
 
@@ -296,15 +227,148 @@ class CodeGenerator(map: Map[Identifier, `Type`], declarationZone: DeclarationZo
   }
 
   def generateFor(x: For) = {
-    x.value._1 match {
+    val a = x.value._1 match {
       case ForAttribution(k) =>
+        val c = k._2 match {
+          case NumberConst(m) => "0x" + java.lang.Double.doubleToLongBits(m).toHexString
+          case Identifier(m) => "[" + m + "]"
+        }
         s"""
-          |mov [${k._1}
+          |  mov xmm0, $c
+          |  mov [${k._1}], xmm0
         """.stripMargin
+    }
+    val b = x.value._2 match {
+      case Less(x) => getAssemblyCode(List(x._1), Map.empty) + getAssemblyCode(List(x._2), Map.empty) +
+                      s"""
+                         |movsd xmm0, [rsp]
+                         |add rsp, 8
+                         |movsd xmm1, [rsp]
+                         |add rsp, 8
+                         |cmpltsd xmm0, xmm1
+                       """.stripMargin
+      case LessOrEquals(x) => getAssemblyCode(List(x._1), Map.empty) + getAssemblyCode(List(x._2), Map.empty) +
+                      s"""
+                         |movsd xmm0, [rsp]
+                         |add rsp, 8
+                         |movsd xmm1, [rsp]
+                         |add rsp, 8
+                         |cmplesd xmm0, xmm1
+                                     """.stripMargin
+      case Greater(x) => getAssemblyCode(List(x._1), Map.empty) + getAssemblyCode(List(x._2), Map.empty) +
+                      s"""
+                         |movsd xmm1, [rsp]
+                         |add rsp, 8
+                         |movsd xmm0, [rsp]
+                         |add rsp, 8
+                         |cmpltsd xmm0, xmm1
+                                     """.stripMargin
+      case GreaterOrEquals(x) => getAssemblyCode(List(x._1), Map.empty) + getAssemblyCode(List(x._2), Map.empty) +
+                      s"""
+                         |movsd xmm1, [rsp]
+                         |add rsp, 8
+                         |movsd xmm0, [rsp]
+                         |add rsp, 8
+                         |cmplesd xmm0, xmm1
+                                     """.stripMargin
+      case Equals(x) => getAssemblyCode(List(x._1), Map.empty) + getAssemblyCode(List(x._2), Map.empty) +
+                      s"""
+                         |movsd xmm0, [rsp]
+                         |add rsp, 8
+                         |movsd xmm1, [rsp]
+                         |add rsp, 8
+                         |cmpeqsd xmm0, xmm1
+                                     """.stripMargin
+      case NotEquals(x) => getAssemblyCode(List(x._1), Map.empty) + getAssemblyCode(List(x._2), Map.empty)
+                      s"""
+                         |movsd xmm0, [rsp]
+                         |add rsp, 8
+                         |movsd xmm1, [rsp]
+                         |add rsp, 8
+                         |cmpneqsd xmm0, xmm1
+                                     """.stripMargin
+    }
+    val c = x.value._3 match {
+      case Iteration(_) => ???
     }
   }
 
-  def getAssemblyCode(tokenList: Seq[Token], map2: Map[Identifier, Token]) = {
+  def generateMath(x: Token) = {
+    def recur(x: Token):String ={
+      x match {
+        case Add(y) => recur(y._1) + recur(y._2) +
+          """
+            |movsd xmm1, [rsp]
+            |add rsp, 8
+            |movsd xmm0, [rsp]
+            |add rsp, 8
+            |addsd XMM0, XMM1
+            |sub rsp, 8
+            |movsd [rsp], XMM0
+            |
+          """.stripMargin
+        case Sub(y) => recur(y._1) + recur(y._2) +
+          """
+            |movsd xmm1, [rsp]
+            |add rsp, 8
+            |movsd xmm0, [rsp]
+            |add rsp, 8
+            |subsd XMM0, XMM1
+            |sub rsp, 8
+            |movsd [rsp], XMM0
+            |
+          """.stripMargin
+        case Div(y) =>  recur(y._1) + recur(y._2) +
+          """
+            |movsd xmm1, [rsp]
+            |add rsp, 8
+            |movsd xmm0, [rsp]
+            |add rsp, 8
+            |divsd XMM0, XMM1
+            |sub rsp, 8
+            |movsd [rsp], XMM0
+            |
+          """.stripMargin
+        case Mul(y) => recur(y._1) + recur(y._2) +
+          """
+            |movsd xmm1, [rsp]
+            |add rsp, 8
+            |movsd xmm0, [rsp]
+            |add rsp, 8
+            |mulsd XMM0, XMM1
+            |sub rsp, 8
+            |movsd [rsp], XMM0
+            |
+          """.stripMargin
+        case Mod(y) => recur(y._1) + recur(y._2) +
+          """
+            |movsd xmm0, [rsp]
+            |add rsp, 8
+            |movsd  xmm1, [rsp]
+            |add rsp, 8
+            |mov rax, 2
+            |call fmod
+            |sub rsp, 8
+            |movsd [rsp], rax
+            |
+          """.stripMargin
+        case Identifier(y) =>
+          s"""
+             |push qword [$y]
+          """.stripMargin
+
+        case NumberConst(y) =>
+          s"""
+             |mov rax, 0x${java.lang.Double.doubleToLongBits(y).toHexString}
+             |push rax
+          """.stripMargin
+
+      }
+    }
+    recur(x)
+  }
+
+  def getAssemblyCode(tokenList: Seq[Token], map2: Map[Identifier, Token]):String = {
     println(tokenList)
     def recurr(tokenList: Seq[Token], code:String): String ={
       if(tokenList.isEmpty) code
@@ -315,6 +379,11 @@ class CodeGenerator(map: Map[Identifier, `Type`], declarationZone: DeclarationZo
           case x: Write => generateWrite(x)
           case x: Read => generateRead(x)
           case x: For => generateFor(x)
+          case x: Add => generateMath(x)
+          case x: Sub => generateMath(x)
+          case x: Div => generateMath(x)
+          case x: Mod => generateMath(x)
+          case x: Mul => generateMath(x)
         }
         recurr(tokenList.tail, code + x)
       }

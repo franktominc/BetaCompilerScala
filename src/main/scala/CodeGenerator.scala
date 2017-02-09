@@ -8,6 +8,7 @@ class CodeGenerator(map: Map[Identifier, `Type`], declarationZone: DeclarationZo
   private var switchCount = 0
   private var whileCount = 0
   private var ifCount = 0
+  private var readBooleanCount = 0
 
   private val header =
     """
@@ -16,18 +17,19 @@ class CodeGenerator(map: Map[Identifier, `Type`], declarationZone: DeclarationZo
       |extern fgets
       |extern stdin
       |extern __fpurge
+      |extern fmod
       |
       |global main:
       |
       |section .data
       |  FALSE: equ 0
-      |  TRUE:  equ 1
+      |  TRUE:  equ 255
       |  _printNum: db "%lf",10, 0
       |  _printStr: db "%s",10, 0
       |  _printBool: db "%d",10, 0
       |  _readNum: db "%lf", 0
       |  _readStr: db "%[0-9a-zA-Z' ']", 0
-      |  _readByte: db "%c", 0
+      |  _readByte: db "%d", 0
       |  _tmp: dq 0
     """.stripMargin
   private val sectionText =
@@ -44,8 +46,8 @@ class CodeGenerator(map: Map[Identifier, `Type`], declarationZone: DeclarationZo
       |  ret
     """.stripMargin
 
-  def generate = {
-    val writer = new Writer("/home/ftominc/Dropbox/compilador/teste2.asm")
+  def generate(out: String) = {
+    val writer = new Writer(out)
     sectionData = getAssemblyCode(declarationZone.value, buildValueMap(declarationZone.value, Map.empty))
     val codeZoneStr = getAssemblyCode(codeZone.value, buildValueMap(declarationZone.value, Map.empty))
     writer.write(header)
@@ -60,7 +62,7 @@ class CodeGenerator(map: Map[Identifier, `Type`], declarationZone: DeclarationZo
     val a = map.get(x.value._1) match {
       case Some(NumberType) => "dq "
       case Some(StringType) => "db "
-      case Some(BoolType) => "db "
+      case Some(BoolType) => "dq "
       case _ => "db "
     }
     val b = x.value._2 match {
@@ -103,7 +105,8 @@ class CodeGenerator(map: Map[Identifier, `Type`], declarationZone: DeclarationZo
         case _ => getAssemblyCode(List(y), Map.empty)
       }
       case y: NumberConst => s"""
-                                |mov [${x.value._1.value}], 0x${java.lang.Double.doubleToLongBits(y.value).toHexString}
+                                |mov rax, 0x${java.lang.Double.doubleToLongBits(y.value).toHexString}
+                                |mov [${x.value._1.value}], rax
         """.stripMargin
       case Bool(y) => y match {
         case "true" =>
@@ -184,7 +187,7 @@ class CodeGenerator(map: Map[Identifier, `Type`], declarationZone: DeclarationZo
           s"""
              |xor rax, rax
              |mov rdi, _printBool
-             |movzx esi, byte [${k.value}]
+             |mov esi, [${k.value}]
              |call printf
            """.stripMargin
       }
@@ -221,12 +224,20 @@ class CodeGenerator(map: Map[Identifier, `Type`], declarationZone: DeclarationZo
            |  call __fpurge
          """.stripMargin
       case BoolType =>
+        readBooleanCount = readBooleanCount + 1
         s"""
            |  mov rdi, _readByte
            |  mov rsi, ${x.value.value}
            |  xor rax, rax
            |  call scanf
            |  sub [${x.value.value}], 48d
+           |  cmp [${x.value.value}], 0
+           |  je FALSE_LABEL$readBooleanCount
+           |  or [${x.value.value}], 0xffffffffffffffff
+           |  jump TRUE_LABEL$readBooleanCount
+           |  FALSE_LABEL$readBooleanCount:
+           |  and [${x.value.value}], 0x0000000000000000
+           |  TRUE_LABEL$readBooleanCount:
          """.stripMargin
     }
   }
@@ -257,7 +268,7 @@ class CodeGenerator(map: Map[Identifier, `Type`], declarationZone: DeclarationZo
     val b = x.value._2 match {
       case y: Less =>
         s"$enter:" +
-        getAssemblyCode(List(y.value._1), Map.empty) + getAssemblyCode(List(y.value._2), Map.empty) +
+          getAssemblyCode(List(y.value._1), Map.empty) + getAssemblyCode(List(y.value._2), Map.empty) +
           s"""
              |movsd xmm0, [rsp]
              |add rsp, 8
@@ -416,7 +427,7 @@ class CodeGenerator(map: Map[Identifier, `Type`], declarationZone: DeclarationZo
             |mov rax, 2
             |call fmod
             |sub rsp, 8
-            |movsd [rsp], rax
+            |mov [rsp], rax
             |
           """.stripMargin
         case Identifier(y) =>
@@ -448,7 +459,7 @@ class CodeGenerator(map: Map[Identifier, `Type`], declarationZone: DeclarationZo
     """.stripMargin
 
   def generateIteration(x: Iteration) = {
-    val a = x.value._2 match{
+    val a = x.value._2 match {
       case Identifier(y) =>
         s"""
            |movsd xmm2, [${x.value._1.value}]
@@ -476,35 +487,37 @@ class CodeGenerator(map: Map[Identifier, `Type`], declarationZone: DeclarationZo
     switchCount = switchCount + 1
     val a =
       s"""
-        |movsd xmm0, [${x.value._1.value}]
+         |movsd xmm0, [${x.value._1.value}]
       """.stripMargin
-    def recur(tokenList: Seq[Token], jumpSection:String, codeSection:String):(String, String) ={
-      if(tokenList.isEmpty) (jumpSection, codeSection+s"$endSwitch:")
-      else{
+
+    def recur(tokenList: Seq[Token], jumpSection: String, codeSection: String): (String, String) = {
+      if (tokenList.isEmpty) (jumpSection, codeSection + s"$endSwitch:")
+      else {
         tokenList.head match {
           case x: Case => recur(tokenList.tail,
-                                jumpSection+
-                                  s"""
-                                     |mov rax, 0x${java.lang.Double.doubleToLongBits(x.value._1.value).toHexString}
-                                     |push rax
-                                     |movsd xmm1, [rsp]
-                                     |add rsp, 8
-                                     |ucomisd xmm0, xmm1
-                                     |je $startcase${x.value._1.value}
-                                   """.stripMargin ,
-                                codeSection+
-                                  s"""
-                                     |$startcase${x.value._1.value}:
-                                     |
+            jumpSection +
+              s"""
+                 |mov rax, 0x${java.lang.Double.doubleToLongBits(x.value._1.value).toHexString}
+                 |push rax
+                 |movsd xmm1, [rsp]
+                 |add rsp, 8
+                 |ucomisd xmm0, xmm1
+                 |je $startcase${x.value._1.value}
+                                   """.stripMargin,
+            codeSection +
+              s"""
+                 |$startcase${x.value._1.value}:
+                 |
                                    """.stripMargin +
-                                  getAssemblyCode(x.value._2, Map.empty) +
-                                  s"""
-                                    | jmp $endSwitch
+              getAssemblyCode(x.value._2, Map.empty) +
+              s"""
+                 | jmp $endSwitch
                                   """.stripMargin)
         }
       }
     }
-    val c = recur(x.value._2,"","")
+
+    val c = recur(x.value._2, "", "")
     a + c._1 + getAssemblyCode(x.value._3.asInstanceOf[Default].value, Map.empty) +
       s"""
          |jmp $endSwitch
@@ -523,67 +536,120 @@ class CodeGenerator(map: Map[Identifier, `Type`], declarationZone: DeclarationZo
          |add rsp, 8
          |ucomisd xmm1, xmm0
       """.stripMargin
-    x.value._1 match{
+    x.value._1 match {
       case y: Less => enter + ":" + getAssemblyCode(List(y.value._1), Map.empty) +
         getAssemblyCode(List(y.value._2), Map.empty) +
         relationalHeader +
-                       s"""
-                          |jnc $leave
+        s"""
+           |jnc $leave
                         """.stripMargin + getAssemblyCode(x.value._2, Map.empty) +
-                       s"""
-                         |jmp $enter
-                         |$leave:
+        s"""
+           |jmp $enter
+           |$leave:
                        """.stripMargin
       case y: LessOrEquals => enter + ":" + getAssemblyCode(List(y.value._1), Map.empty) +
         getAssemblyCode(List(y.value._2), Map.empty) +
         relationalHeader +
-                      s"""
-                         |ja $leave
+        s"""
+           |ja $leave
                                       """.stripMargin + getAssemblyCode(x.value._2, Map.empty) +
-                      s"""
-                         |jmp $enter
-                         |$leave:
+        s"""
+           |jmp $enter
+           |$leave:
                                      """.stripMargin
       case y: Greater => enter + ":" + getAssemblyCode(List(y.value._1), Map.empty) +
         getAssemblyCode(List(y.value._2), Map.empty) +
         relationalHeader +
-                    s"""
-                       |jbe $leave
+        s"""
+           |jbe $leave
                                     """.stripMargin + getAssemblyCode(x.value._2, Map.empty) +
-                    s"""
-                       |jmp $enter
-                       |$leave:
+        s"""
+           |jmp $enter
+           |$leave:
                                    """.stripMargin
       case y: GreaterOrEquals => enter + ":" + getAssemblyCode(List(y.value._1), Map.empty) +
         getAssemblyCode(List(y.value._2), Map.empty) +
         relationalHeader +
-                    s"""
-                       |jc $leave
+        s"""
+           |jc $leave
                                     """.stripMargin + getAssemblyCode(x.value._2, Map.empty) +
-                    s"""
-                       |jmp $enter
-                       |$leave:
+        s"""
+           |jmp $enter
+           |$leave:
                                    """.stripMargin
       case y: Equals => enter + ":" + getAssemblyCode(List(y.value._1), Map.empty) +
         getAssemblyCode(List(y.value._2), Map.empty) +
         relationalHeader +
-                    s"""
-                       |jnz $leave
+        s"""
+           |jnz $leave
                                     """.stripMargin + getAssemblyCode(x.value._2, Map.empty) +
-                    s"""
-                       |jmp $enter
-                       |$leave:
+        s"""
+           |jmp $enter
+           |$leave:
                                    """.stripMargin
       case y: NotEquals => enter + ":" + getAssemblyCode(List(y.value._1), Map.empty) +
         getAssemblyCode(List(y.value._2), Map.empty) +
         relationalHeader +
-                    s"""
-                       |jz $leave
+        s"""
+           |jz $leave
                                     """.stripMargin + getAssemblyCode(x.value._2, Map.empty) +
-                    s"""
-                       |jmp $enter
-                       |$leave:
+        s"""
+           |jmp $enter
+           |$leave:
                                    """.stripMargin
+      case y: And =>
+        s"$enter:"+
+        generateLogical(y) +
+        s"""
+           |pop rax
+           |test rax, rax
+           |jz $leave
+        """.stripMargin +
+        getAssemblyCode(x.value._2, Map.empty) +
+        s"""
+           |jmp $enter
+        """.stripMargin +
+        leave + ":"
+      case y: Or => s"$enter:"+
+        generateLogical(y) +
+        s"""
+           |pop rax
+           |test rax, rax
+           |jz $leave
+        """.stripMargin +
+        getAssemblyCode(x.value._2, Map.empty) +
+        s"""
+           |jmp $enter
+        """.stripMargin +
+        leave + ":"
+      case y: Not => s"$enter:"+
+        generateLogical(y) +
+        s"""
+           |pop rax
+           |test rax, rax
+           |jz $leave
+        """.stripMargin +
+        getAssemblyCode(x.value._2, Map.empty) +
+        s"""
+           |jmp $enter
+        """.stripMargin +
+        leave + ":"
+      case y: Bool => y.value match {
+        case "true" => s"$enter" + getAssemblyCode(x.value._2, Map.empty) + s"jmp $enter"
+        case "false" => ""
+      }
+      case y: Identifier =>
+        s"""
+           |$enter:
+           |mov rax, [${y.value}]
+           |test rax, rax
+           |jz $leave
+         """.stripMargin +
+          getAssemblyCode(x.value._2, Map.empty)+
+          s"""
+             |jmp $enter
+          """.stripMargin +
+          leave + ":"
     }
   }
 
@@ -682,7 +748,182 @@ class CodeGenerator(map: Map[Identifier, `Type`], declarationZone: DeclarationZo
          """.stripMargin +
         getAssemblyCode(x.value._2, Map.empty) +
         leave + ":"
+      case y: And => generateLogical(y) +
+        s"""
+           |pop rax
+           |test rax, rax
+           |jnz $enter
+        """.stripMargin +
+        elseCode +
+        s"""
+           |jmp $leave
+           |$enter:
+                      """.stripMargin +
+          getAssemblyCode(x.value._2, Map.empty)+
+          leave + ":"
+      case y: Or => generateLogical(y)+
+        s"""
+           |pop rax
+           |test rax, rax
+           |jnz $enter
+        """.stripMargin +
+        elseCode +
+        s"""
+           |jmp $leave
+           |$enter:
+                      """.stripMargin +
+        getAssemblyCode(x.value._2, Map.empty)+
+        leave + ":"
+      case y: Not => generateLogical(y)+
+        s"""
+           |pop rax
+           |test rax, rax
+           |jnz $enter
+        """.stripMargin +
+        elseCode +
+        s"""
+           |jmp $leave
+           |$enter:
+                      """.stripMargin +
+        getAssemblyCode(x.value._2, Map.empty)+
+        leave + ":"
+      case y: Bool => y.value match {
+        case "true" => getAssemblyCode(x.value._2, Map.empty)
+        case "false" => elseCode
+      }
+      case y: Identifier =>
+        s"""
+           |mov rax, [${y.value}]
+           |test rax, rax
+           |jnz $enter
+         """.stripMargin +
+          elseCode +
+          s"""
+             |jmp $leave
+             |$enter:
+                      """.stripMargin +
+          getAssemblyCode(x.value._2, Map.empty)+
+          leave + ":"
     }
+  }
+
+  def generateLogical(x: Token) = {
+    val relationalHeader =
+      s"""
+         |xor rax, rax
+         |movsd xmm0, [rsp]
+         |add rsp, 8
+         |movsd xmm1, [rsp]
+         |add rsp, 8
+         |ucomisd xmm1, xmm0
+      """.stripMargin
+
+    val logicalHeader =
+      s"""
+         |pop rax
+         |pop rbx
+       """.stripMargin
+    def recur(token: Token): String = {
+      token match {
+        case x: Identifier =>
+          s"""
+             |push qword [${x.value}]
+           """.stripMargin
+        case x: NumberConst =>
+          s"""
+             |mov rax, 0x${java.lang.Double.doubleToLongBits(x.value).toHexString}
+             |push rax
+          """.stripMargin
+        case x: Less => recur(x.value._1) +
+          recur(x.value._2) +
+          relationalHeader +
+          s"""
+             |SETB al
+             |push rax
+           """.stripMargin
+        case x: LessOrEquals => recur(x.value._1) +
+          recur(x.value._2) +
+          relationalHeader +
+          s"""
+             |SETBE al
+             |push rax
+           """.stripMargin
+        case x: Greater => recur(x.value._1) +
+          recur(x.value._2) +
+          relationalHeader +
+          s"""
+             |setg al
+             |push rax
+           """.stripMargin
+        case x: GreaterOrEquals => recur(x.value._1) +
+          recur(x.value._2) +
+          relationalHeader +
+          s"""
+             |setge al
+             |push rax
+          """.stripMargin
+        case x: Equals => getAssemblyCode(List(x.value._1),Map.empty) +
+          getAssemblyCode(List(x.value._2), Map.empty) +
+          relationalHeader +
+          s"""
+             |sete al
+             |push rax
+          """.stripMargin
+        case x: NotEquals => recur(x.value._1)+
+          recur(x.value._2) +
+          relationalHeader +
+          s"""
+             |setne al
+             |push rax
+          """.stripMargin
+        case x: And => recur(x.value._1) +
+          recur(x.value._2) +
+          logicalHeader +
+          s"""
+             |and rax, rbx
+             |push rax
+          """.stripMargin
+        case x: Or => recur(x.value._1) +
+          recur(x.value._2) +
+          logicalHeader +
+          s"""
+             |or rax, rbx
+             |push rax
+          """.stripMargin
+        case x: Not =>
+          x.value match {
+            case k: Identifier =>
+              s"""
+                 |not byte [${k.value}]
+                 |and byte [${k.value}], 255d
+                 |push qword [${k.value}]
+               """.stripMargin
+            case k: BooleanConst =>
+              s"""
+                 |mov rax, ${k.value.toUpperCase}
+                 |not rax
+                 |and rax, 255d
+                 |push rax
+               """.stripMargin
+          }
+        case x: Bool => x.value match {
+          case "true" =>
+            s"""
+               |xor rax, rax
+               |mov al, TRUE
+               |push rax
+             """.stripMargin
+          case "false" =>
+            s"""
+               |xor rax, rax
+               |mov al, FALSE
+               |push rax
+             """.stripMargin
+        }
+      }
+    }
+
+    recur(x)
   }
 
   def getAssemblyCode(tokenList: Seq[Token], map2: Map[Identifier, Token]): String = {

@@ -1,3 +1,5 @@
+import jdk.nashorn.internal.codegen.types.BooleanType
+
 /**
   * Created by frank on 23/01/2017.
   */
@@ -344,6 +346,10 @@ object Semantic {
     }
     val c = x._1 match{
       case Bool(_) => Right(Success)
+      case y: Identifier => map.get(y) match{
+        case Some(BoolType) => Right(Success)
+        case _ => Left("Variavel com tipo incompativel")
+      }
       case _ => eval(x._1, map) match {
         case Right(_) => recur(x._2)
         case Left(k) => Left(k)
@@ -357,6 +363,88 @@ object Semantic {
       }
       d
     }else c
+  }
+
+  def evalLogic(x: (Token, Token), map: Map[Identifier, `Type`]): Either[String, Status] = {
+    def evalLogic2(y: Token, map: Map[Identifier, `Type`]): Either[String, Status] = {
+      y match {
+        case x: And => eval(x, map)
+        case x: Or => eval(x, map)
+        case x: Not => eval(x, map)
+        case x: Less => eval(x, map)
+        case x: LessOrEquals => eval(x, map)
+        case x: Greater => eval(x, map)
+        case x: GreaterOrEquals => eval(x, map)
+        case x: Equals => eval(x, map)
+        case x: NotEquals => eval(x, map)
+        case x: Identifier => map.get(x) match {
+          case Some(x) => x match {
+            case BoolType => Right(Success)
+            case _ => Left("Tipo Incompativel")
+          }
+          case _ => Left("Tipo Incompativel")
+        }
+        case x: BooleanConst => Right(Success)
+        case _ => Left("Tipo Incompativel")
+      }
+    }
+    x._1 match {
+      case And(_) => eval(x._1, map) match {
+        case Right(_) => evalLogic2(x._2, map)
+        case _ => Left("Tipo Incompativel")
+      }
+      case Or(_) => eval(x._1, map) match {
+        case Right(_) => evalLogic2(x._2, map)
+        case _ => Left("Tipo Incompativel")
+      }
+      case Less(_) => eval(x._1, map) match {
+        case Right(_) => evalLogic2(x._2, map)
+        case _ => Left("Tipo Incompativel")
+      }
+      case LessOrEquals(_) => eval(x._1, map) match {
+        case Right(_) => evalLogic2(x._2, map)
+        case _ => Left("Tipo Incompativel")
+      }
+      case Greater(_) => eval(x._1, map) match {
+        case Right(_) => evalLogic2(x._2, map)
+        case _ => Left("Tipo Incompativel")
+      }
+      case GreaterOrEquals(_) => eval(x._1, map) match {
+        case Right(_) => evalLogic2(x._2, map)
+        case _ => Left("Tipo Incompativel")
+      }
+      case Equals(_) => eval(x._1, map) match {
+        case Right(_) => evalLogic2(x._2, map)
+        case _ => Left("Tipo Incompativel")
+      }
+      case NotEquals(_) => eval(x._1, map) match {
+        case Right(_) => evalLogic2(x._2, map)
+        case _ => Left("Tipo Incompativel")
+      }
+      case Not(_) => eval(x._1, map) match {
+        case Right(_) => evalLogic2(x._2, map)
+        case _ => Left("Tipo Incompativel")
+      }
+      case x: Identifier => map.get(x) match{
+        case Some(x) => x match {
+          case BoolType => Right(Success)
+          case _ => Left("Tipo Incompativel")
+        }
+        case _ => Left("Tipo Incompativel")
+      }
+      case x: BooleanConst => Right(Success)
+      case _ => Left("Tipo Incompativel")
+    }
+  }
+
+  def evalNot(x: Token, map: Map[Identifier, `Type`]) = {
+    map.get(x.asInstanceOf[Identifier]) match{
+      case Some(x) => x match {
+        case BoolType => Right(Success)
+        case _ => Left("Oops, Not With Incompatible type")
+      }
+      case _ => Left("Undefined Reference to Variable")
+    }
   }
 
   def eval(head: Token, map: Map[Identifier, `Type`]): Either[String, Status] = {
@@ -381,6 +469,9 @@ object Semantic {
       case Mul(x)=> evalMath(x, map)
       case Div(x)=> evalMath(x, map)
       case Mod(x)=> evalMath(x, map)
+      case And(x)=> evalLogic(x, map)
+      case Or(x)=> evalLogic(x, map)
+      case Not(x) => evalNot(x, map)
       case Read(_) => Right(Success)
     }
   }

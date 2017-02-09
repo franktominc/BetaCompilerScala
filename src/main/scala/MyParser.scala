@@ -143,24 +143,24 @@ object MyParser {
 
   val parens = P( "(" ~/ addSub ~ ")" )
 
-  val factor = P( numberParser | parens | identifierParser )
+  val factor = P( parens | numberParser | identifierParser )
 
-  val divMul = P( factor ~ (CharIn("*/%").! ~ factor).rep ).map(eval)
+  val divMul = P( factor ~ (CharIn("*/%").! ~/ factor).rep ).map(eval)
 
-  val addSub: P[Token] = P( divMul ~ !and ~ !or ~ (CharIn("+-").! ~ divMul).rep ).map(eval)
+  val addSub: P[Token] = P( divMul ~ (CharIn("+-").! ~ divMul).rep ).map(eval)
 
-  val relationalOperator = P(greaterOrEquals | lesserOrEquals | greater | lesser | equals)
+  val relationalOperator = P(greaterOrEquals | lesserOrEquals | greater | lesser | equals | notEquals)
 
   val orExpression = P(andExpression ~ ("||".! ~ andExpression).rep).map(evalLogic)
 
-  val andExpression: P[Token] = P(logicOperator ~("&&".! ~ logicOperator).rep).map(evalLogic)
+  val andExpression: P[Token] = P(logicOperator ~ ("&&".! ~ logicOperator).rep).map(evalLogic)
 
   val notExpression = P(not ~
                       (identifierParser | booleanParser | orExpression)).map(Not)
 
   val parensLogic = P( "(" ~/ orExpression ~ ")" )
 
-  val logicOperator = P(relationalExpression | notExpression | identifierParser | booleanParser | parensLogic)
+  val logicOperator = P(parensLogic | relationalExpression | notExpression | identifierParser | booleanParser )
 
  val relationalExpression = P(addSub ~ relationalOperator.! ~ addSub).map(evalRelational)
 
@@ -230,14 +230,14 @@ object MyParser {
 
   val `while`:P[Token] = P("while" ~/
                   "(" ~
-                  orExpression ~
+                  orExpression  ~
                   ")" ~
                   "{" ~
                   expr.rep ~
                   "}").map(While)
 
   val `if`: P[Token] = (P("if" ~
-                      "(" ~
+                      "(" ~/
                       orExpression ~
                       ")" ~
                       "{" ~
